@@ -1,11 +1,14 @@
 const KEY = 'mccall-workshop-data';
 const SESSION = 'mccall-session';
+const API_TOKEN_KEY = 'mccall-api-token';
+const API_URL = String(window.__API_URL__ || '').replace(/\/$/, '');
 const statuses = ['Por revisar', 'En reparación', 'Esperando repuesto', 'Lista para entregar'];
 const statusClasses = ['', 'repair', 'parts', 'ready'];
 const servicePrices = { repair: 30000, oil: 10000, maintenance: 120000, diagnosis: 15000 };
 const serviceLabels = { repair: 'Reparación', oil: 'Cambio de aceite', maintenance: 'Mantenimiento preventivo', diagnosis: 'Diagnóstico' };
 let data = load();
 let userId = localStorage.getItem(SESSION) || '';
+let apiToken = localStorage.getItem(API_TOKEN_KEY) || '';
 let view = 'home';
 const $ = (selector) => document.querySelector(selector);
 const money = (value) => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value) || 0);
@@ -14,7 +17,9 @@ const newId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(16).
 const dateText = (value) => value ? new Intl.DateTimeFormat('es-CO', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(value)) : '-';
 function emptyData() { return { users: [{ id: 'admin', username: 'admin', password: 'McCall2026', name: 'Administrador', role: 'admin', active: true }], clients: [], orders: [], inventory: [] }; }
 function load() { try { const saved = JSON.parse(localStorage.getItem(KEY)); if (saved?.users && saved?.orders) return saved; } catch (error) { console.warn(error); } return emptyData(); }
-function save() { localStorage.setItem(KEY, JSON.stringify(data)); }
+function save() { localStorage.setItem(KEY, JSON.stringify(data)); if (API_URL && apiToken) syncRemoteState(); }
+async function syncRemoteState() { try { const response = await fetch(`${API_URL}/api/state`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiToken}` }, body: JSON.stringify(data) }); if (!response.ok) throw new Error(`HTTP ${response.status}`); const remote = await response.json(); data = remote; localStorage.setItem(KEY, JSON.stringify(data)); } catch (error) { console.error('No se pudo sincronizar con la base compartida.', error); } }
+async function loadRemoteState() { const response = await fetch(`${API_URL}/api/state`, { headers: { Authorization: `Bearer ${apiToken}` } }); if (!response.ok) throw new Error(`HTTP ${response.status}`); data = await response.json(); localStorage.setItem(KEY, JSON.stringify(data)); }
 function me() { return data.users.find((item) => item.id === userId && item.active); }
 function roleName(role) { return { admin: 'Administrador', mechanic: 'Mecánico', client: 'Cliente' }[role] || role; }
 function clientOf(id) { return data.clients.find((item) => item.id === id); }
@@ -97,7 +102,7 @@ function bindMechanic() { document.querySelectorAll('[data-action="status"]').fo
 
 document.addEventListener('click', (event) => { const navButton = event.target.closest('[data-nav]'); if (navButton) { view = navButton.dataset.nav; render(); return; } const action = event.target.closest('[data-action]'); if (!action) return; if (action.dataset.action === 'delete-part') { data.inventory = data.inventory.filter((part) => part.id !== action.dataset.id); save(); render(); toast('Repuesto eliminado.'); } if (action.dataset.action === 'toggle-user') { const user = data.users.find((item) => item.id === action.dataset.id); user.active = !user.active; save(); render(); toast(user.active ? 'Usuario activado.' : 'Usuario bloqueado.'); } if (action.dataset.action === 'delete-user') { const user = data.users.find((item) => item.id === action.dataset.id); if (user && confirm(`¿Eliminar el usuario ${user.name}?`)) { data.users = data.users.filter((item) => item.id !== user.id); save(); render(); toast('Usuario eliminado.'); } } if (action.dataset.action === 'pay') { const order = data.orders.find((item) => item.id === action.dataset.id); order.paid = !order.paid; order.paidAt = order.paid ? new Date().toISOString() : ''; save(); render(); toast(order.paid ? 'Factura registrada.' : 'Factura anulada.'); } });
 document.addEventListener('change', (event) => { const select = event.target.closest('[data-action="assign"]'); if (!select) return; const order = data.orders.find((item) => item.id === select.dataset.id); order.mechanicId = select.value; order.updatedAt = new Date().toISOString(); save(); render(); toast('Mecánico asignado.'); });
-$('#loginForm').addEventListener('submit', (event) => { event.preventDefault(); const values = new FormData(event.currentTarget); const user = data.users.find((item) => item.username === values.get('username') && item.password === values.get('password') && item.active); if (!user) { $('#loginError').textContent = 'Usuario o contraseña incorrectos, o acceso bloqueado.'; return; } userId = user.id; localStorage.setItem(SESSION, userId); view = 'home'; render(); });
-$('#logoutButton').addEventListener('click', () => { userId = ''; localStorage.removeItem(SESSION); render(); });
+$('#loginForm').addEventListener('submit', async (event) => { event.preventDefault(); const values = new FormData(event.currentTarget); const username = String(values.get('username')).trim().toLowerCase(); const password = String(values.get('password')); try { if (API_URL) { const response = await fetch(`${API_URL}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Usuario o contraseña incorrectos.'); apiToken = result.token; localStorage.setItem(API_TOKEN_KEY, apiToken); userId = result.user.id; localStorage.setItem(SESSION, userId); await loadRemoteState(); } else { const user = data.users.find((item) => item.username === username && item.password === password && item.active); if (!user) throw new Error('Usuario o contraseña incorrectos, o acceso bloqueado.'); userId = user.id; localStorage.setItem(SESSION, userId); } $('#loginError').textContent = ''; view = 'home'; render(); } catch (error) { $('#loginError').textContent = error.message; } });
+$('#logoutButton').addEventListener('click', () => { userId = ''; apiToken = ''; localStorage.removeItem(SESSION); localStorage.removeItem(API_TOKEN_KEY); render(); });
 render();
 
