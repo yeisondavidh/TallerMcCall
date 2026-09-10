@@ -9,11 +9,12 @@ import { fileURLToPath } from 'node:url';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 3000);
 const appSecret = process.env.APP_SECRET || crypto.randomBytes(32).toString('hex');
+const allowedOrigins = new Set([process.env.FRONTEND_URL, 'https://tranquil-dusk-4ce5d4.netlify.app'].filter(Boolean).map((origin) => origin.replace(/\/$/, '')));
 const app = express();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_URL?.includes('localhost') ? false : { rejectUnauthorized: false } });
 
 app.use(express.json({ limit: '30mb' }));
-app.use((request, response, next) => { const origin = process.env.FRONTEND_URL; if (origin && request.headers.origin === origin) { response.setHeader('Access-Control-Allow-Origin', origin); response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization'); response.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, OPTIONS'); } if (request.method === 'OPTIONS') return response.sendStatus(204); next(); });
+app.use((request, response, next) => { const origin = request.headers.origin?.replace(/\/$/, ''); if (origin && allowedOrigins.has(origin)) { response.setHeader('Access-Control-Allow-Origin', origin); response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization'); response.setHeader('Access-Control-Allow-Methods', 'GET, PUT, POST, OPTIONS'); response.setHeader('Vary', 'Origin'); } if (request.method === 'OPTIONS') return response.sendStatus(204); next(); });
 app.use((request, response, next) => { if (['/server.js', '/schema.sql', '/package.json', '/README.md', '/.env.example'].includes(request.path)) return response.sendStatus(404); next(); });
 app.use(express.static(root));
 
