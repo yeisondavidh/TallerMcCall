@@ -1,2 +1,2 @@
-// Leave empty for the static Netlify demo. Set your deployed API URL when using PostgreSQL.
-window.__API_URL__ = '';
+// Shared Render API used by the Netlify frontend.
+window.__API_URL__ = 'https://taller-mccall-api.onrender.com';
